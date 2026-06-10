@@ -47,3 +47,8 @@ po/*~
 
 # RStudio Connect folder
 rsconnect/
+
+references/
+compare_nsec_lecx_files/
+README_files/
+*.html
