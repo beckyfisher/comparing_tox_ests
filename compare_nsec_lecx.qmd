@@ -497,6 +497,35 @@ reintroduce a dependence on the observed control sample size. Exploring whether 
 formulations converge as $n$ increases, and under what conditions each is more conservative,
 represents a worthwhile area for future methodological research.
 
+A critical technical requirement for this reformulation, however, is that the parametric
+curve must pass exactly through the observed control mean $\bar{y}_{\text{control}}$, so
+that the model-predicted response at zero concentration equals the empirical anchor from
+which the variance threshold is computed. For the smooth exponential model this is
+straightforward: rather than estimating $b_0$ freely, one fixes it to
+$\bar{y}_{\text{control}}$ and fits only $b_1$ and $b_2$:
+
+$$
+y = \bar{y}_{\text{control}} \cdot \exp(-b_1 \cdot x^{b_2})
+$$
+
+In R this is achieved by substituting the pre-computed control mean directly into the
+`nls()` formula and removing $b_0$ from the parameter list:
+
+```r
+b0_fixed <- mean(dat$growth[dat$conc == 0])
+nls_fixed <- nls(growth ~ b0_fixed * exp(-b1 * conc^b2),
+                 data = dat,
+                 start = list(b1 = 0.1, b2 = 0.5))
+```
+
+The same principle extends to other common dose-response forms: for a log-logistic model
+the upper asymptote is pinned to $\bar{y}_{\text{control}}$; for a Weibull model the
+location parameter is shifted accordingly. The key requirement is that the model must have
+a well-defined upper asymptote that maps directly to the zero-concentration response ---
+which is satisfied by all standard monotone decreasing forms used in ecotoxicology. This
+constraint also has the beneficial side effect of reducing model dimensionality by one
+parameter, often improving convergence and reducing uncertainty in the remaining parameters.
+
 
 ## Compare fitted curves
 
