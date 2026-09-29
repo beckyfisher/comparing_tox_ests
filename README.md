@@ -2,11 +2,11 @@
 
 ## Introduction
 
-In environmental risk assessment, toxicity data from laboratory-based concentration–response (C–R) experiments are routinely summarised into single-value metrics for use in decision-making frameworks such as species sensitivity distributions (SSDs). These summaries aim to reduce complex biological responses into comparable units across species, enabling the derivation of protective concentration thresholds for chemicals in the environment. As a result, the choice of toxicity metric plays a central role in shaping estimates of ecological risk and environmental guideline values.
+In environmental risk assessment, toxicity data from laboratory-based concentration–response (C–R) experiments are routinely summarised into single-value metrics for use in decision-making frameworks such as species sensitivity distributions (SSDs). These summaries reduce complex biological responses to values that can be compared across species, and protective concentration thresholds for chemicals in the environment are derived from them. The choice of toxicity metric therefore affects estimates of ecological risk and the environmental guideline values based on them.
 
-Historically, the most widely used metrics have been the no-observed-effect concentration (NOEC/LOEC) and effect-based measures such as the ECx (e.g., EC10). These metrics are commonly used as inputs to SSDs, where a distribution of species-specific toxicity values is used to estimate concentrations protective of a specified proportion of species (e.g., HC5). However, the statistical properties and ecological interpretation of these metrics have been widely debated. NOEC/LOEC values are sensitive to experimental design and limited to tested concentrations, while ECx values depend on the selection of an arbitrary effect level and may not align conceptually with “no-effect” protection goals (van Straalen & Denneman, 1989; Van der Hoeven et al., 1997; Green et al., 2013).
+Historically, the most widely used metrics have been the no-observed-effect and lowest-observed-effect concentrations (NOEC and LOEC) and effect-based measures such as the ECx (e.g., EC10). These metrics are commonly used as inputs to SSDs, where a distribution of species-specific toxicity values is used to estimate concentrations protective of a specified proportion of species (e.g., HC5). However, the statistical properties and ecological interpretation of these metrics have been widely debated. NOEC and LOEC values are sensitive to experimental design and limited to the tested concentrations. ECx values depend on the selection of an arbitrary effect level and may not align conceptually with “no-effect” protection goals (van Straalen & Denneman, 1989; Van der Hoeven et al., 1997; Green et al., 2013).
 
-These limitations have motivated the development of alternative toxicity metrics that aim to better represent underlying biological responses while providing improved statistical properties. In particular, there has been increasing emphasis on model-based approaches that use the full concentration–response relationship, rather than relying on discrete hypothesis testing or arbitrary effect thresholds.
+These limitations prompted the development of alternative toxicity metrics, intended to represent the underlying biological response more closely and to have better-defined statistical properties than the NOEC and the ECx. In particular, there has been increasing emphasis on model-based approaches that use the full concentration–response relationship, rather than relying on discrete hypothesis testing or arbitrary effect thresholds.
 
 ## Scope
 
@@ -18,7 +18,7 @@ The repository is intended as an evolving framework for:
 - Comparing numerical behaviour across metrics
 - Exploring implications for ecological risk assessment and SSDs
 
-The aim of this repository is to provide a transparent and reproducible framework for comparing these toxicity metrics using a common dataset and consistent implementation. By examining how LECₓ, NEC, and NSEC behave under identical conditions, we aim to highlight differences in their assumptions, sensitivity to experimental design, and implications for their use in ecological risk assessment. This forms part of a broader effort to compare toxicity metrics and their estimation methods, with future extensions to include approaches such as benchmark dose modelling and model-averaged thresholds.
+The aim of this repository is to provide a transparent and reproducible framework for comparing these toxicity metrics using a common dataset and consistent implementation. The LECₓ, NEC, NSEC and NSEC-MSD are applied to the same data, to show how they differ in their assumptions, in their sensitivity to experimental design, and in their implications for ecological risk assessment. This forms part of a broader effort to compare toxicity metrics and their estimation methods, with future extensions to include approaches such as benchmark dose modelling and model-averaged thresholds.
 
 ## Currently included
 
@@ -31,7 +31,7 @@ Four estimators are currently considered:
 
 De Bruyn and Elphick (2013) give two methods for the LECₓ. Method 1, for replicated tests, sets the effect size to the Dunnett PMSD; the NSEC-MSD is this method. Method 2, for tests without replication, sets it from the confidence band on the baseline response; the NSEC is the same calculation. The two differ only in the departure from the control that is treated as significant, and `compare_nsec_lecx.qmd` shows how that difference splits into three factors.
 
-These approaches reflect different ways of summarising C–R relationships for use in environmental assessment, and embody different assumptions about what constitutes a biologically meaningful absence of effect. As such, they provide an opportunity to explore how methodological choices influence derived toxicity values.
+They differ in how they summarise a C–R relationship, and in what they assume a biologically meaningful absence of effect to be. Comparing them shows how methodological choices affect the derived toxicity values.
 
 ## Contents
 
