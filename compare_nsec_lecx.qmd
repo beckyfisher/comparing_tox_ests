@@ -28,6 +28,8 @@ Three such approaches are considered here:
 
 These approaches reflect different ways of summarising C–R relationships for use in environmental assessment, and embody different assumptions about what constitutes a biologically meaningful absence of effect.
 
+A fourth estimator, the NSEC-MSD, is the LECₓ as calculated for replicated tests, expressed in the NSEC framing: a threshold is the concentration at which the fitted curve falls a set distance below its modelled control response. The section on the LECₓ methods in the NSEC framing defines it.
+
 This write up began as a means of understanding the differences between the approaches in the two publications:
 
 - de Bruyn & Elphick (2013): *Proposing a vigorous hybrid of the LOECs and ECx (LECₓ)*
@@ -98,7 +100,9 @@ Key properties:
 In short:
 “Find where the curve first becomes significantly different, then report how big that effect is.”
 
-# NEC (threshold model approach)
+This workflow is the first of two calculation methods given by @debruyn2013lecx. The section on the LECₓ methods in the NSEC framing describes both.
+
+## NEC (threshold model approach)
 Workflow:
 
 	1. Fit a threshold model (piecewise function)
@@ -140,8 +144,28 @@ In short:
 
 ## Key contrast:
 	LECₓ → hybrid of hypothesis testing + interpolation
+	NEC → pure curve-based inference (parametric modelling)
 	NSEC → pure model-based inference with statistical comparison to control
-	NSEC → pure curve-based inference (parametric modeling)
+
+## LECₓ methods in the NSEC framing
+
+@debruyn2013lecx give two methods for calculating the LECₓ. Both read the concentration from a fitted curve at an effect size x that is set by statistical confidence rather than chosen in advance. They differ in how x is set.
+
+- Method 1, for tests with replicate organisms at each concentration, sets x to the percent minimum significant difference (PMSD) from the control of Dunnett's test or another appropriate hypothesis test [@usepa2000]. This is the method implemented in CETIS.
+- Method 2, for tests without replication, sets x from the 95% confidence band on the baseline response. @debruyn2013lecx state that this is the calculation proposed by @chevre2002 for the statistical no-effect concentration (SNEC).
+
+Both methods, and the NSEC, can be written as the concentration at which the fitted curve falls a distance $\delta$ below the modelled control response $b_0$. They differ only in $\delta$:
+
+| Estimator | $\delta$ | LECₓ method |
+|-----------|----------|-------------|
+| NSEC | $t_{1-\alpha,\,n-p} \cdot \text{SE}(\hat{b}_0)$, the lower one-sided confidence bound on the modelled control response | Method 2 |
+| NSEC-MSD | $\hat{b}_0 \cdot \text{PMSD}/100$, with $\text{PMSD} = 100 \cdot \text{MSD}/\bar{y}_{\text{control}}$ and $\text{MSD} = d_{1-\alpha} \cdot s_{\text{pooled}} \sqrt{1/n_{\text{control}} + 1/n_{\text{treatment}}}$ | Method 1 |
+
+Here $d_{1-\alpha}$ is the one-sided critical value of Dunnett's test [@dunnett1955], and $s_{\text{pooled}}$ is the within-group standard deviation from a one-way ANOVA.
+
+The NSEC is therefore the same calculation as LECₓ method 2, and the NSEC-MSD is LECₓ method 1 written in the NSEC framing. Two differences separate the NSEC from method 2 as de Bruyn and Elphick describe it. They propose method 2 only for tests without replication, whereas the NSEC is applied to replicated tests as well. They also read the value as the lowest concentration at which the modelled effect differs significantly from the baseline, whereas @chevre2002 and @fisher2023nsec read the same value as the highest concentration at which it does not. The number is the same under either reading. @debruyn2013lecx do not state whether the 95% band is one- or two-sided; the NSEC here uses a one-sided bound at $\alpha = 0.05$.
+
+For a replicated test both methods can be calculated from the same curve, and their values differ because their $\delta$ differ. The NSEC-MSD section of the worked example splits that difference into its sources.
 
 # Treatment of effect size
 **LECₓ**: 
@@ -270,26 +294,33 @@ summary(anova_fit)
 ```
 
 #### Step 2: Estimate minimum significant difference (PMSD)
-We approximate PMSD using pooled standard deviation:
+The minimum significant difference (MSD) is that of a one-sided Dunnett's test at $\alpha = 0.05$ [@usepa2000; @dunnett1955], computed from the pooled within-group standard deviation of the ANOVA:
+
+$$
+\text{MSD} = d_{1-\alpha} \cdot s_{\text{pooled}} \sqrt{\frac{1}{n_{\text{control}}} + \frac{1}{n_{\text{treatment}}}}
+$$
+
+The critical value $d_{1-\alpha}$ depends on the number of treatments compared with the control, their replication, and the residual degrees of freedom. `dunnett_crit()` in `R/dunnett.R` computes it by numerical integration.
 
 ```{r}
-# pooled SD
-mse <- summary(anova_fit)[[1]]["Residuals", "Mean Sq"]
-n_rep <- 3
+source("R/dunnett.R")
 
-# Critical t-value
-tcrit <- qt(0.95, df = anova_fit$df.residual)
+dunnett <- dunnett_msd(dat$conc, dat$growth, alpha = 0.05)
+n_control <- dunnett$n_control
+n_rep <- dunnett$n_treatment
+msd <- dunnett$msd
 
-pmsd <- tcrit * sqrt(2 * mse / n_rep)
-pmsd
+c(d_crit = dunnett$d_crit, s_pooled = dunnett$s_pooled, msd = msd)
 ```
+
+With `r dunnett$k` treatments compared with the control and `r dunnett$df` residual degrees of freedom, the critical value is `r sprintf("%.2f", dunnett$d_crit)` and the MSD is `r sprintf("%.2f", msd)`.
 
 #### Step 3: Convert PMSD to % effect (x)
 
 ```{r}
-control_mean <- mean(dat$growth[dat$conc == 0.1])
+control_mean <- dunnett$control_mean
 
-x_percent <- (pmsd / control_mean) * 100
+x_percent <- (msd / control_mean) * 100
 x_percent
 ```
 
@@ -311,12 +342,10 @@ b2 <- coef(nls_fit)["b2"]
 summary(nls_fit)
 ```
 
-We now find concentration where model gives that % reduction:
+The LECₓ is the concentration at which the fitted curve shows an x% reduction from its modelled control response $\hat{b}_0$, which is the ICx read from the curve at x = PMSD:
 ```{r}
 
-target <- control_mean - pmsd
-
-lecx <- ((-log(target / b0)) / b1)^(1/b2)
+lecx <- ((-log(1 - x_percent / 100)) / b1)^(1/b2)
 
 lecx
 ```
@@ -438,169 +467,67 @@ $$
 \text{EC}_{x\text{@NSEC}} = \left(1 - \frac{\hat{b}_0 - t \cdot \text{SE}_{b_0}}{\hat{b}_0}\right) \times 100 = \frac{t \cdot \text{SE}_{b_0}}{\hat{b}_0} \times 100
 $$
 
-#### Step 5: Compare NSEC equivalent ECx to LECₓ effect size
-
-```{r compare-effect-sizes}
-comparison <- data.frame(
-  Metric = c("LECx", "NSEC"),
-  Concentration = round(c(lecx, nsec), 4),
-  Effect_size_pct = round(c(x_percent, ecx_equiv_nsec), 2)
-)
-knitr::kable(
-  comparison,
-  col.names = c("Metric", "Concentration", "Equivalent effect size (%)"),
-  caption = paste0(
-    "Comparison of LECx and NSEC concentrations with their associated effect sizes. ",
-    "The LECx effect size is the PMSD as a % of the observed control mean; ",
-    "the NSEC effect size is the % reduction from b0 at the NSEC concentration."
-  )
-)
-```
-
-The two effect sizes are conceptually related but not algebraically identical:
-
-- The **LECx effect size** (`x_percent`) is the minimum statistically detectable difference
-  (PMSD) as a proportion of the *observed* control mean, derived from pooled residual variance
-  via ANOVA.
-- The **NSEC equivalent ECx** is the % reduction from the *model-estimated* control asymptote
-  ($\hat{b}_0$) at the NSEC concentration, which by construction equals
-  $t \cdot \text{SE}_{b_0} / \hat{b}_0 \times 100$.
-
-Both quantities are anchored to the uncertainty in the control response, but via different
-routes. When the same $\alpha$ and dataset are used, they will be similar if the model-based
-$\text{SE}_{b_0}$ and the ANOVA-based pooled SD are consistent — but they will generally
-differ because they use the observed vs. model-estimated control mean, and because one pools
-variance across all treatment groups while the other reflects only the parametric uncertainty
-in $b_0$.
-
-### Future directions: anchoring the NSEC on control variance
-
-A natural extension of the NSEC method would be to anchor the critical threshold not on
-$\text{SE}_{b_0}$ — the parametric uncertainty in the model intercept — but directly on the
-**observed variance of the control replicates**, analogous to how the LECx uses the ANOVA
-pooled SD. Concretely, one could define a *control-variance NSEC* as the concentration at
-which the model prediction first falls below $\bar{y}_{\text{control}} - t \cdot \text{SD}_{\text{control}} / \sqrt{n_{\text{control}}}$,
-i.e., the lower bound of a one-sided confidence interval on the *observed* control mean
-rather than on $\hat{b}_0$.
-
-This reformulation would have two advantages. First, it would make the NSEC effect size
-directly comparable to the LECx effect size, since both would then be anchored to the same
-empirical control distribution. Second, it would decouple the threshold from the global model
-fit: a poorly constrained $b_0$ (e.g., when control replicates are few) currently inflates
-$\text{SE}_{b_0}$ and pushes the NSEC to artificially low concentrations, whereas using
-$\text{SD}_{\text{control}}$ directly would reflect only the *biological* variability in
-unexposed organisms.
-
-The trade-off is that this variant would lose one of the NSEC's original motivations —
-grounding the threshold entirely within the model's parametric framework — and would
-reintroduce a dependence on the observed control sample size. Exploring whether the two
-formulations converge as $n$ increases, and under what conditions each is more conservative,
-represents a worthwhile area for future methodological research.
-
-A critical technical requirement for this reformulation, however, is that the parametric
-curve must pass exactly through the observed control mean $\bar{y}_{\text{control}}$, so
-that the model-predicted response at zero concentration equals the empirical anchor from
-which the variance threshold is computed. For the smooth exponential model this is
-straightforward: rather than estimating $b_0$ freely, one fixes it to
-$\bar{y}_{\text{control}}$ and fits only $b_1$ and $b_2$:
-
-$$
-y = \bar{y}_{\text{control}} \cdot \exp(-b_1 \cdot x^{b_2})
-$$
-
-In R this is achieved by substituting the pre-computed control mean directly into the
-`nls()` formula and removing $b_0$ from the parameter list:
-
-```r
-b0_fixed <- mean(dat$growth[dat$conc == 0])
-nls_fixed <- nls(growth ~ b0_fixed * exp(-b1 * conc^b2),
-                 data = dat,
-                 start = list(b1 = 0.1, b2 = 0.5))
-```
-
-The same principle extends to other common dose-response forms: for a log-logistic model
-the upper asymptote is pinned to $\bar{y}_{\text{control}}$; for a Weibull model the
-location parameter is shifted accordingly. The key requirement is that the model must have
-a well-defined upper asymptote that maps directly to the zero-concentration response ---
-which is satisfied by all standard monotone decreasing forms used in ecotoxicology. This
-constraint also has the beneficial side effect of reducing model dimensionality by one
-parameter, often improving convergence and reducing uncertainty in the remaining parameters.
-
-
-## NSEC-cv (control-variance anchored)
+## NSEC-MSD
 
 Definition:
-A variant of the NSEC in which the threshold is anchored on the **observed control variance**
-rather than the parametric uncertainty in $\hat{b}_0$. The model is constrained to pass exactly
-through the observed control mean by fixing $b_0 = \bar{y}_{\text{control}}$ and estimating
-only the shape parameters. The threshold is then the concentration at which the model prediction
-falls below the one-sided confidence interval on the observed control mean:
+The concentration at which the fitted curve falls below its modelled control response $\hat{b}_0$ by the percent minimum significant difference (PMSD) of Dunnett's test. This is LECₓ method 1 written in the NSEC framing, with
 
 $$
-y = \bar{y}_{\text{control}} \cdot \exp(-b_1 \cdot x^{b_2})
+\delta_{\text{MSD}} = \hat{b}_0 \cdot \frac{\text{PMSD}}{100}
 $$
 
+#### Threshold on the NSEC curve
+
+```{r nsec-msd}
+delta_msd <- b0 * x_percent / 100
+
+nsec_msd <- ((-log((b0 - delta_msd) / b0)) / b1)^(1 / b2)
+nsec_msd
+
+all.equal(unname(nsec_msd), unname(lecx))
+```
+
+The NSEC-MSD, `r signif(nsec_msd, 3)`, equals the LECₓ calculated above, because both read the same curve at the same effect size. Its equivalent effect size is the PMSD by construction.
+
+#### Comparison with the NSEC
+
+The ratio of the NSEC-MSD effect size to the NSEC effect size is the product of three factors:
+
 $$
-\text{threshold} = \bar{y}_{\text{control}} - t \cdot \frac{\text{SD}_{\text{control}}}{\sqrt{n_{\text{control}}}}
+\frac{\text{PMSD}}{\text{EC}_{x\text{@NSEC}}} =
+\frac{d_{1-\alpha}}{t_{1-\alpha,\,n-p}} \times
+\frac{s_{\text{pooled}} \sqrt{1/n_{\text{control}} + 1/n_{\text{treatment}}}}{\text{SE}(\hat{b}_0)} \times
+\frac{\hat{b}_0}{\bar{y}_{\text{control}}}
 $$
 
-#### Step 1: Fix b0 to observed control mean and refit
+The first factor is the adjustment for multiple comparisons. Dunnett's critical value allows for every treatment being compared with the control, whereas $t$ is the critical value for a single bound. The second factor compares two standard errors. The numerator is the standard error of a difference between a control group mean and a treatment group mean. $\text{SE}(\hat{b}_0)$ is estimated from the whole curve, so it uses information from every concentration at which the curve is close to $\hat{b}_0$, not from the controls alone. It includes no term for the variability of a treatment group mean. The third factor is 1 when the fitted curve passes through the observed control mean.
 
-```{r nsec-cv-fit}
-# Fix b0 to observed control mean
-b0_fixed <- mean(dat$growth[dat$conc == 0.1])
-n_control <- sum(dat$conc == 0.1)
-sd_control <- sd(dat$growth[dat$conc == 0.1])
+```{r nsec-msd-decomposition}
+t_nsec <- qt(0.95, df = nrow(dat) - length(coef(nls_fit)))
+se_difference <- dunnett$s_pooled * sqrt(1 / n_control + 1 / n_rep)
 
-# Refit with only b1 and b2 as free parameters
-nls_cv_fit <- nls(
-  growth ~ b0_fixed * exp(-b1 * conc^b2),
-  data = dat,
-  start = list(b1 = 0.05, b2 = 1)
+factors <- c(
+  critical_value = dunnett$d_crit / t_nsec,
+  standard_error = se_difference / unname(se_b0),
+  control_response = unname(b0) / control_mean
 )
+effect_ratio <- x_percent / unname(ecx_equiv_nsec)
 
-summary(nls_cv_fit)
+knitr::kable(
+  data.frame(
+    Factor = c(
+      "Critical value: Dunnett's d / t",
+      "Standard error: control-treatment difference / SE(b0)",
+      "Control response: b0 / observed control mean",
+      "Product: PMSD / effect size at the NSEC"
+    ),
+    Value = round(c(factors, prod(factors)), 3)
+  ),
+  caption = "Factors in the ratio of the NSEC-MSD effect size (the PMSD) to the NSEC effect size, fish growth data."
+)
 ```
 
-#### Step 2: Compute control CI from observed replicates
-
-```{r nsec-cv-ci}
-tcrit_cv <- qt(0.95, df = n_control - 1)
-
-# Lower one-sided CI on observed control mean
-control_lower_cv <- b0_fixed - tcrit_cv * sd_control / sqrt(n_control)
-control_lower_cv
-```
-
-#### Step 3: Solve for NSEC-cv
-
-```{r nsec-cv-solve}
-b1_cv <- coef(nls_cv_fit)["b1"]
-b2_cv <- coef(nls_cv_fit)["b2"]
-
-nsec_cv <- ((-log(control_lower_cv / b0_fixed)) / b1_cv)^(1 / b2_cv)
-nsec_cv
-```
-
-#### Step 4: Equivalent ECx at NSEC-cv
-
-```{r nsec-cv-ecx}
-pred_at_nsec_cv <- b0_fixed * exp(-b1_cv * nsec_cv^b2_cv)
-
-ecx_equiv_nsec_cv <- (1 - pred_at_nsec_cv / b0_fixed) * 100
-ecx_equiv_nsec_cv
-```
-
-By construction, the equivalent ECx at NSEC-cv equals the one-sided CI width as a fraction
-of the control mean:
-
-$$
-\text{EC}_{x\text{@NSEC-cv}} = \frac{t \cdot \text{SD}_{\text{control}} / \sqrt{n_{\text{control}}}}{\bar{y}_{\text{control}}} \times 100
-$$
-
-which is exactly the same quantity as the **LECx effect size** (`x_percent`). This confirms
-that anchoring on observed control variance makes the NSEC equivalent ECx directly comparable
-to the LECx effect size — the key conceptual bridge between the two methods.
+For these data the PMSD is `r sprintf("%.1f", x_percent)`%, which is `r round(effect_ratio, 2)` times the NSEC effect size of `r sprintf("%.1f", ecx_equiv_nsec)`%. The NSEC-MSD (`r signif(nsec_msd, 3)`) is `r round(nsec_msd / nsec, 2)` times the NSEC (`r signif(nsec, 3)`). The standard-error factor, `r round(factors[["standard_error"]], 2)`, is the largest of the three. The critical-value factor is `r round(factors[["critical_value"]], 2)`. The fitted control response is `r round(100 * (1 - factors[["control_response"]]), 1)`% below the observed control mean, which reduces the ratio by that proportion.
 
 ## Compare fitted curves
 
@@ -620,53 +547,46 @@ curve(nec_model(x,
                 coef(nec_fit)["gamma"]),
       add = TRUE, col = "purple", lwd = 2)
 
-# Add NSEC-cv curve (fixed b0)
-curve(b0_fixed * exp(-coef(nls_cv_fit)["b1"] * x^coef(nls_cv_fit)["b2"]),
-      add = TRUE, col = "darkorange", lwd = 2, lty = 3)
-
 abline(v = nec, col = "purple", lwd = 2, lty = 2)
 abline(v = nsec, col = "red", lwd = 2, lty = 2)
-abline(v = nsec_cv, col = "darkorange", lwd = 2, lty = 2)
-abline(v = lecx, col = "green", lwd = 2, lty = 2)
+abline(v = nsec_msd, col = "green", lwd = 2, lty = 2)
 
-legend("topright",
-       legend = c("Smooth model (free b0)", "NEC model", "NSEC-cv model (fixed b0)",
-                  "NEC", "NSEC", "NSEC-cv", "LECx"),
-       col = c("blue", "purple", "darkorange", "purple", "red", "darkorange", "green"),
-       lty = c(1, 1, 3, 2, 2, 2, 2),
+legend("bottomleft",
+       legend = c("Smooth model", "NEC model",
+                  "NEC", "NSEC (LECx method 2)", "NSEC-MSD (LECx method 1)"),
+       col = c("blue", "purple", "purple", "red", "green"),
+       lty = c(1, 1, 2, 2, 2),
        lwd = 2)
 ```
 
-The table below summarises the three toxicity threshold estimates derived from the fitted models.
+The NEC, at `r signif(nec, 3)`, lies below the NSEC at `r signif(nsec, 3)`. The NSEC-MSD, at `r signif(nsec_msd, 3)`, is the highest of the three. The table gives the same estimates with their equivalent effect sizes: `r sprintf("%.1f", ecx_equiv_nsec)`% for the NSEC and `r sprintf("%.1f", x_percent)`% for the NSEC-MSD.
 
 ```{r}
 results_table <- data.frame(
-  Metric = c("LECx", "NEC", "NSEC", "NSEC-cv"),
+  Metric = c("NEC", "NSEC (LECx method 2)", "NSEC-MSD (LECx method 1)"),
   Description = c(
-    "Lowest effect concentration (hypothesis-test based)",
     "No-effect concentration (threshold model)",
-    "No-significant-effect concentration (model-based, free b0)",
-    "No-significant-effect concentration (control-variance anchored, fixed b0)"
+    "Curve falls below the lower one-sided 95% bound on b0",
+    "Curve falls below b0 by the Dunnett PMSD"
   ),
-  Estimate = round(c(lecx, nec, nsec, nsec_cv), 4),
-  Equivalent_ECx = c(round(x_percent, 2), NA, round(ecx_equiv_nsec, 2), round(ecx_equiv_nsec_cv, 2))
+  Estimate = round(c(nec, nsec, nsec_msd), 4),
+  Equivalent_ECx = c(NA, round(ecx_equiv_nsec, 2), round(x_percent, 2))
 )
 knitr::kable(
   results_table,
   col.names = c("Metric", "Description", "Estimate", "Equivalent effect size (%)"),
   caption = paste0(
-    "Summary of toxicity threshold estimates with equivalent effect sizes. ",
-    "For LECx and NSEC-cv, the effect size is anchored on observed control variance. ",
-    "For NSEC, it is the % reduction from the model asymptote (b0) at the NSEC concentration. ",
-    "NEC does not have a directly comparable effect size as it is a structural threshold parameter. ",
-    "Note that the LECx effect size and the NSEC-cv equivalent ECx are algebraically identical by construction."
+    "Toxicity threshold estimates for the fish growth data, with equivalent effect sizes. ",
+    "For the NSEC and the NSEC-MSD the effect size is the % reduction from b0 at the threshold. ",
+    "The NSEC-MSD equals the LECx calculated by method 1, and its effect size is the PMSD. ",
+    "The NEC has no comparable effect size because it is a parameter of a threshold model."
   )
 )
 ```
 
 # Discussion and conclusions
 
-The comparison of LECₓ, NEC, and NSEC applied to a common dataset highlights how different statistical assumptions and methodological choices translate into different estimates of toxicity thresholds. Although each method is derived from the same underlying concentration–response data, they represent fundamentally different interpretations of what constitutes a biologically meaningful “effect”, albeit noting that the differences among them are very small given the uncertainty typically associated with risk assessments.
+The comparison of LECₓ, NEC, and NSEC applied to a common dataset highlights how different statistical assumptions and methodological choices translate into different estimates of toxicity thresholds. Although each method is derived from the same underlying concentration–response data, they represent fundamentally different interpretations of what constitutes a biologically meaningful “effect”. On these data the estimates span a factor of `r sprintf("%.1f", nsec_msd / nec)`, from the NEC (`r signif(nec, 3)`) to the LECₓ calculated by method 1 (`r signif(nsec_msd, 3)`).
 
 The **LECₓ** approach identifies the lowest concentration at which a statistically significant effect is detected, with the associated effect size determined by the data. This retains a direct link to hypothesis testing and experimental design, but also inherits its limitations. In particular, the location of the LECₓ depends on statistical power, replication, and variability within treatments, as reflected in the minimum significant difference (PMSD). As a result, LECₓ can shift depending on the precision of the experiment rather than purely the biological response.
 
@@ -676,18 +596,26 @@ The **NSEC** provides an alternative that avoids the explicit assumption of a th
 
 Taken together, these results illustrate that differences among toxicity metrics are not merely technical, but conceptual. LECₓ is tied to **detectability of effects**, NEC to **biological threshold assumptions**, and NSEC to **statistical definitions of no effect**. None of these approaches is universally optimal; rather, their suitability depends on the objectives of the analysis, the quality of the data, and the plausibility of underlying biological assumptions.
 
-The ordering of the three metrics observed here — NEC < NSEC < LECₓ — is theoretically expected and has practical consequences for risk assessment. The NEC, as the lowest of the three, represents the most conservative estimate: it is the concentration at which the threshold model predicts the onset of effects, making it the preferred input for SSDs in jurisdictions such as Australia where the goal is to derive genuinely protective guideline values [@fisher2024methods]. The NSEC is intermediate, identifying the highest concentration not statistically distinguishable from the control within a smooth model. Its position above the NEC reflects the fact that, under a non-threshold model, concentrations just above the NEC may still fall within statistical noise of the control response — meaning effects must reach a detectably significant level before the NSEC is exceeded. The LECₓ is the least conservative, because its threshold is set by what is detectable given the particular power of the experiment: higher variability or lower replication will push the LECₓ upward regardless of the true biological response [@debruyn2013lecx].
+The ordering of the three metrics observed here — NEC < NSEC < LECₓ, where the LECₓ is calculated by method 1 and equals the NSEC-MSD — is theoretically expected and has practical consequences for risk assessment. The NEC, as the lowest of the three, represents the most conservative estimate: it is the concentration at which the threshold model predicts the onset of effects, making it the preferred input for SSDs in jurisdictions such as Australia where the goal is to derive genuinely protective guideline values [@fisher2024methods]. The NSEC is intermediate, identifying the highest concentration not statistically distinguishable from the control within a smooth model. Its position above the NEC reflects the fact that, under a non-threshold model, concentrations just above the NEC may still fall within statistical noise of the control response — meaning effects must reach a detectably significant level before the NSEC is exceeded. The LECₓ is the least conservative, because its threshold is set by what is detectable given the particular power of the experiment: higher variability or lower replication will push the LECₓ upward regardless of the true biological response [@debruyn2013lecx].
 
 In the context of SSD modelling and guideline derivation, this ordering matters considerably. Substituting LECₓ or NSEC values where NEC values are expected would systematically shift SSD inputs upward, leading to less protective guideline concentrations. Fisher et al. [-@fisher2024methods] note that for smooth sigmoidal concentration–response data, a naively fitted NEC threshold model can return estimates *higher* than the EC10 — a clear sign that the model assumption is violated. The NSEC was introduced partly to address exactly this failure mode: when data do not support a threshold, the NSEC provides a model-based, no-effect estimate that remains tethered to the observed concentration–response relationship rather than an artifact of model misspecification. The hierarchy NEC ≤ NSEC ≤ LECₓ can therefore be thought of as a spectrum from biologically motivated threshold assumptions to statistically motivated detectability constraints, with each metric making a different trade-off between conservatism and robustness to data characteristics.
 
 From a practical perspective, these differences are particularly important in regulatory contexts such as SSD modelling, where toxicity values from multiple species are aggregated. Inconsistent or poorly understood differences between metrics can propagate through to guideline derivation and affect estimates of ecosystem protection. This has been a key motivation for ongoing debate around the use of NOEC, ECx, and alternative metrics in ecotoxicology [@vandam2012; @green2013].
 
-A further insight emerging from this comparison is that the NSEC carries an **implicit equivalent ECx value** — the percentage reduction in response predicted by the fitted model at the NSEC concentration, relative to the control asymptote $\hat{b}_0$. This equivalent effect size is not set by the analyst but falls out of the model parameters: it equals $t \cdot \text{SE}_{\hat{b}_0} / \hat{b}_0 \times 100$, where $t$ is the critical value used to define the no-effect threshold. In the present example, the NSEC equivalent ECx (~8.6%) was substantially smaller than the LECx effect size (~18.8%), and the two corresponded to different concentrations. This divergence reflects a fundamental difference in the variance structure being used: the NSEC anchors its threshold on parametric uncertainty in the model intercept, whereas the LECx uses the pooled residual variance from ANOVA across all treatment groups — which is inflated by the declining response at higher concentrations. The two would converge only if residual variance were homogeneous across concentrations and the NLS and ANOVA variance estimates were consistent. This finding suggests that comparing the equivalent ECx at the NSEC with the LECx effect size offers a useful diagnostic: large divergence between the two indicates that the assumption of homogeneous variance is violated, and that the choice of method will materially affect the resulting toxicity threshold. It also raises the question of whether a future variant of the NSEC anchored on observed control variance — rather than parametric uncertainty in $\hat{b}_0$ — might yield thresholds more directly comparable to effect-based benchmarks such as the LECx and ECx, as discussed further in the Future Directions section above.
+The NSEC also has an implicit equivalent effect size, $t \cdot \text{SE}(\hat{b}_0) / \hat{b}_0 \times 100$, which is not set by the analyst but follows from the fit. Set beside the PMSD for the same test, it shows how far the two LECₓ methods differ, and the three factors in the NSEC-MSD section show where the difference arises.
 
-The implementation of the **NSEC-cv** in this worked example confirms the theoretical prediction: by fixing $b_0$ to the observed control mean and anchoring the threshold on the one-sided confidence interval of the control replicates, the equivalent ECx at the NSEC-cv is algebraically identical to the LECx effect size. Both equal $t \cdot \text{SD}_{\text{control}} / (\sqrt{n_{\text{control}}} \cdot \bar{y}_{\text{control}}) \times 100$. The NSEC-cv and LECx therefore share a common effect-size anchor, but arrive at different concentrations: the LECx solves the free-$b_0$ model for the concentration corresponding to that effect size, while the NSEC-cv solves the fixed-$b_0$ model. Any difference between their concentration estimates is attributable entirely to the constraint on $b_0$ — that is, to how much the freely estimated model intercept departs from the observed control mean. This provides a clean, interpretable decomposition: NSEC-cv and LECx are now measuring the same biological signal (departure from the observed control distribution), just through different model parameterisations. The NSEC-cv thus closes the conceptual gap between the purely parametric NSEC and the hybrid LECx, while retaining the model-based framework of the NSEC family.
+For a replicated test both LECₓ methods can be calculated, and the NSEC and the LECₓ as calculated in CETIS then differ in $\delta$. They also differ in the fitted curve wherever CETIS fits a different concentration–response model. Where the same comparison test is applied to the same concentrations, the NSEC-MSD has the same effect size as the LECₓ from CETIS. Where the same model is also fitted, it has the same concentration.
 
 An important next step, and a motivating factor for this repository, is the extension to **model-averaged approaches**, such as the N(S)EC implemented in the *bayesnec* framework. These approaches attempt to address one of the central issues highlighted here: uncertainty in model structure. By combining threshold and non-threshold models within a unified framework, model averaging provides a way to propagate structural uncertainty into the resulting toxicity estimate, rather than forcing a single model choice.
 
 More broadly, the results reinforce the value of transparent, reproducible comparisons of toxicity metrics using shared datasets and implementations. Such comparisons help clarify the implications of methodological choices and support more informed decision-making in ecological risk assessment. As additional methods (e.g., benchmark dose approaches) are incorporated into this framework, it will become possible to more systematically evaluate the trade-offs between statistical properties, interpretability, and regulatory relevance across the full spectrum of available toxicity metrics.
+
+# Changes from the June 2026 version
+
+The version of this document circulated on 10–12 June 2026 contained three errors, corrected here.
+
+- The LECₓ used Student's $t$ (`r sprintf("%.2f", qt(0.95, dunnett$df))`) in place of Dunnett's critical value (`r sprintf("%.2f", dunnett$d_crit)`), which gave a PMSD of 18.8% rather than `r sprintf("%.1f", x_percent)`%.
+- The LECₓ was read at the concentration where the curve reaches the observed control mean minus the MSD, rather than at an x% reduction from $\hat{b}_0$. The two coincide only when $\hat{b}_0$ equals the observed control mean. With both corrections the LECₓ is `r signif(lecx, 3)` rather than 6.90.
+- An NSEC-cv was defined by fixing $b_0$ at the observed control mean and setting $\delta$ to the one-sided confidence bound on that mean, $t_{1-\alpha,\,n_{\text{control}}-1} \cdot \text{SD}_{\text{control}} / \sqrt{n_{\text{control}}}$. The document stated that its effect size was algebraically identical to the LECₓ effect size. It is not. Its standard error omits the treatment term $1/n_{\text{treatment}}$, it uses the control variance in place of the pooled variance, and it uses $t$ in place of Dunnett's critical value. On these data its effect size was 13.4%, against 18.8% for the LECₓ as then calculated. It corresponds to neither LECₓ method. The NSEC-MSD replaces it.
 
 # References

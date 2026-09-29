@@ -1,4 +1,4 @@
-# Toxicity Metrics Compariso
+# Toxicity Metrics Comparison
 
 ## Introduction
 
@@ -22,17 +22,19 @@ The aim of this repository is to provide a transparent and reproducible framewor
 
 ## Currently included
 
-Three such approaches are currently considered:
+Four estimators are currently considered:
 
 - **LECₓ** (Lowest Effect Concentration with associated effect size), which combines hypothesis testing with model-based interpolation to retain both statistical confidence and effect magnitude [@debruyn2013lecx];
 - **NEC** (No-Effect Concentration), which estimates a threshold parameter directly within a concentration–response model, assuming the existence of a true biological threshold [@fox2010nec];
-- **NSEC** (No-Significant-Effect Concentration), which defines a no-effect threshold based on statistical indistinguishability from the control within a continuous model framework [@fisher2023nsec].
+- **NSEC** (No-Significant-Effect Concentration), which defines a no-effect threshold based on statistical indistinguishability from the control within a continuous model framework [@fisher2023nsec];
+- **NSEC-MSD**, the LECₓ as calculated for replicated tests, written in the NSEC framing: the concentration at which the fitted curve falls below its modelled control response by the percent minimum significant difference (PMSD) of Dunnett's test.
+
+De Bruyn and Elphick (2013) give two methods for the LECₓ. Method 1, for replicated tests, sets the effect size to the Dunnett PMSD; the NSEC-MSD is this method. Method 2, for tests without replication, sets it from the confidence band on the baseline response; the NSEC is the same calculation. The two differ only in the departure from the control that is treated as significant, and `compare_nsec_lecx.qmd` shows how that difference splits into three factors.
 
 These approaches reflect different ways of summarising C–R relationships for use in environmental assessment, and embody different assumptions about what constitutes a biologically meaningful absence of effect. As such, they provide an opportunity to explore how methodological choices influence derived toxicity values.
 
+## Contents
 
-
-
-
-
-
+- `compare_nsec_lecx.qmd`: the worked comparison of the LECₓ, NEC, NSEC and NSEC-MSD on the fish growth data of Fisher and Fox (2023).
+- `R/dunnett.R`: the one-sided Dunnett critical value and minimum significant difference, shared by the two analyses.
+- `case_studies/ce_nsec_analysis.R`: the NSEC and NSEC-MSD for ten single-species cerium chloride toxicity tests, for comparison with the LECₓ calculated in CETIS. The script reads the workbook `case_studies/Ce dataset - for statistical comparison.xlsx`, supplied by the data owner, and writes its results to `case_studies/output/`.

@@ -1,20 +1,26 @@
-# NSEC and NSEC-cv for the cerium (chloride) case study --------------------
+# NSEC and NSEC-MSD for the cerium (chloride) case study -------------------
 #
-# Applies the NSEC and the control-variance anchored NSEC (NSEC-cv), as defined
-# in compare_nsec_lecx.qmd, to the ten single-species cerium chloride toxicity
-# tests supplied by J. Baker (workbook received 2026-09-09). The LECx, NOEC,
-# LOEC, IC10 and IC25 for the same tests are being computed separately in CETIS,
-# and the results table written here is laid out for direct comparison with
-# that output.
+# Applies the NSEC and the NSEC-MSD to the ten single-species cerium chloride
+# toxicity tests supplied by J. Baker (workbook received 2026-09-09). Both are
+# read from one fitted curve and differ only in the departure from the control
+# treated as significant: the NSEC uses the confidence bound on the modelled
+# control response, and the NSEC-MSD uses the percent minimum significant
+# difference (PMSD) of Dunnett's test, which is the LECx calculation of de
+# Bruyn and Elphick (2013). The definitions are set out under "Thresholds:
+# definitions" below. The LECx, NOEC, LOEC, IC10 and IC25 for the same tests are
+# being computed separately in CETIS, and the results table is laid out for
+# direct comparison with that output.
 #
 # Run from anywhere inside the project:
 #   Rscript case_studies/ce_nsec_analysis.R
 #
 # Outputs (case_studies/output/):
 #   ce_data_long.csv     the imported data, one row per replicate
-#   ce_nsec_results.csv  one row per test: fitted parameters, NSEC, NSEC-cv,
-#                        their equivalent effect sizes, and EC10/EC25
-#   ce_nsec_fits.png     data, both fitted curves, and both thresholds per test
+#   ce_nsec_results.csv  one row per test: fitted parameters, NSEC and its
+#                        effect size, the Dunnett MSD and its components,
+#                        NSEC-MSD, EC10/EC25, and the ratio of the two
+#                        effect sizes split into three factors
+#   ce_nsec_fits.png     data, the fitted curve, and both thresholds per test
 #   ce_session_info.txt  R and package versions used for the run
 #
 # No step is stochastic, so no seed is set: repeated runs give identical output.
@@ -29,6 +35,9 @@ if (length(missing) > 0) {
 }
 
 here::i_am("case_studies/ce_nsec_analysis.R")
+
+# dunnett_crit() and dunnett_msd(), shared with compare_nsec_lecx.qmd.
+source(here::here("R", "dunnett.R"))
 
 data_file <- here::here(
   "case_studies", "Ce dataset - for statistical comparison.xlsx"
@@ -140,15 +149,61 @@ print(as.data.frame(design), digits = 4)
 readr::write_csv(ce, file.path(out_dir, "ce_data_long.csv"))
 
 
-# Model and thresholds -------------------------------------------------------
+# Thresholds: definitions -----------------------------------------------------
+
+# De Bruyn and Elphick (2013) give two methods for the LECx. Both read the
+# concentration from a fitted curve at an effect size x set by statistical
+# confidence, and differ in how x is set. Expressed in the NSEC framing, both
+# are the concentration at which the curve falls a distance delta below the
+# modelled control response b0, and they differ only in delta:
+#
+#   NSEC      delta = t(1 - alpha, n - p) * SE(b0)
+#             the lower one-sided confidence bound on the modelled control
+#             response. This is the frequentist NSEC of compare_nsec_lecx.qmd
+#             and the second LECx method (x from the 95% confidence band on the
+#             baseline response), which de Bruyn and Elphick equate with the
+#             SNEC of Chevre et al. (2002). They propose it for tests without
+#             replication, and read the value as the lowest concentration with
+#             a significant modelled effect; the NSEC and the SNEC read the same
+#             value as the highest concentration without one.
+#
+#   NSEC-MSD  delta = b0 * PMSD / 100, with PMSD = 100 * MSD / control mean
+#             and MSD = d(1 - alpha; Dunnett) * s_pooled *
+#             sqrt(1 / n_control + 1 / n_treatment),
+#             the percent minimum significant difference of a one-sided
+#             Dunnett's test (USEPA 2000). This is the first LECx method, for
+#             replicated tests, and is the calculation performed in CETIS for
+#             the comparison. The effect size at the threshold equals the PMSD
+#             by construction.
+#
+# Both are read from one curve, so the difference between them is due only to
+# delta. Their ratio of effect sizes, PMSD / NSEC effect size, is the product
+# of three factors written to the results: Dunnett's critical value over t;
+# the standard error of a control-treatment difference,
+# s_pooled * sqrt(1 / n_control + 1 / n_treatment), over SE(b0); and b0 over
+# the observed control mean.
+#
+# The NSEC-MSD replaces the NSEC-cv of an earlier version of
+# compare_nsec_lecx.qmd, which did not reproduce the PMSD; that document gives
+# the reasons.
+#
+# Three details of the CETIS calculation are assumed here and are to be
+# checked against the CETIS output for each test: that Dunnett's test was the
+# comparison used, on untransformed data with every tested concentration
+# included; that critical values are exact for the replication (rather than
+# tabulated for equal n); and that the IC is expressed relative to the
+# fitted control response rather than the observed control mean.
+
+# Model --------------------------------------------------------------------
 
 # The concentration-response model is the three-parameter exponential decay
-# used for the NSEC and NSEC-cv in compare_nsec_lecx.qmd,
+# used in compare_nsec_lecx.qmd,
 #   y = b0 * exp(-b1 * x^b2),
 # fitted by ordinary least squares on the raw response scale for every test.
-# This keeps the definitions identical to those already circulated. It does
-# not model the variance falling with the mean, which applies to the neonate
-# counts (Ceriodaphnia) and to tests where the response approaches zero.
+# It does not model the variance falling with the mean, which applies to the
+# neonate counts (Ceriodaphnia) and to tests where the response approaches
+# zero. The model used in CETIS for each test may differ, in which case the
+# NSEC-MSD and the CETIS LECx share a delta but not a curve.
 #
 # The model is fitted in the equivalent form y = b0 * exp(-(x / e)^b2), where
 # b1 = e^-b2 and e is the concentration at which the response falls to
@@ -171,23 +226,23 @@ solve_conc <- function(y, b0, e, b2) e * (-log(y / b0))^(1 / b2)
 b2_upper <- 50
 
 # Starting values come from the profile of the residual sum of squares over
-# b2: for each b2 on a grid, the RSS is minimised over e, with b0 either fixed
-# or at its exact least-squares value (b0 enters the model linearly). A single
-# default start does not converge across response shapes that range from a
-# gradual decline (Oncorhynchus) to a near step (Pimephales, Neocloeon), and a
-# coarse two-dimensional grid was found to select a near-step start for
-# Pimephales, where the gradient is flat, although its least-squares b2 is 5.6.
+# b2: for each b2 on a grid, the RSS is minimised over e, with b0 at its exact
+# least-squares value (b0 enters the model linearly). A single default start
+# does not converge across response shapes that range from a gradual decline
+# (Oncorhynchus) to a near step (Pimephales, Neocloeon), and a coarse
+# two-dimensional grid was found to select a near-step start for Pimephales,
+# where the gradient is flat, although its least-squares b2 is 5.6.
 #
 # The profile also decides whether b2 is identified. If its minimum lies at
 # b2_upper, the RSS falls monotonically towards a step and nls() is not run
 # with b2 free, since it cannot converge on a flat surface.
-profile_b2 <- function(x, y, b0_fixed = NULL) {
+profile_b2 <- function(x, y) {
   pos <- x[x > 0]
   log_e_grid <- seq(log(min(pos) / 10), log(max(pos) * 10), length.out = 200)
   b2_grid <- 10^seq(-1, log10(b2_upper), length.out = 60)
   rss_at <- function(log_e, b2) {
     f <- exp(-(x / exp(log_e))^b2)
-    b0 <- if (is.null(b0_fixed)) sum(y * f) / sum(f^2) else b0_fixed
+    b0 <- sum(y * f) / sum(f^2)
     c(rss = sum((y - b0 * f)^2), b0 = b0)
   }
   prof <- purrr::map(b2_grid, \(b2) {
@@ -205,20 +260,17 @@ profile_b2 <- function(x, y, b0_fixed = NULL) {
   best
 }
 
-# Fits the model with b0 estimated (b0_fixed = NULL) or fixed. The port
-# algorithm keeps b2 within (0.05, b2_upper); b2 > 0 is required for a monotone
-# decline and for the curve to equal b0 at the control.
+# The port algorithm keeps b2 within (0.05, b2_upper); b2 > 0 is required for a
+# monotone decline and for the curve to equal b0 at the control.
 #
 # Where b2 is not identified, the model is fitted with b2 fixed at b2_upper and
 # flagged. The fitted curve is then a step, and any threshold defined against
 # the control falls just below the concentration at which the step occurs,
-# whatever effect size it is anchored on. Its exact value depends on b2_upper,
-# and it should be read as lying between the two tested concentrations that
-# bracket the step.
-fit_decay <- function(d, b0_fixed = NULL) {
-  start <- profile_b2(d$conc, d$response, b0_fixed)
-  pars <- c(if (is.null(b0_fixed)) "b0", "log_e", if (!start$at_bound) "b2")
-  if (!is.null(b0_fixed)) d$b0 <- b0_fixed
+# whatever delta it uses. Its exact value depends on b2_upper, and it should be
+# read as lying between the two tested concentrations that bracket the step.
+fit_decay <- function(d) {
+  start <- profile_b2(d$conc, d$response)
+  pars <- c("b0", "log_e", if (!start$at_bound) "b2")
   if (start$at_bound) d$b2 <- b2_upper
 
   fit <- nls(
@@ -232,47 +284,31 @@ fit_decay <- function(d, b0_fixed = NULL) {
   b2 <- if (start$at_bound) b2_upper else cf[["b2"]]
   list(
     fit = fit,
-    b0 = if (is.null(b0_fixed)) cf[["b0"]] else b0_fixed,
+    b0 = cf[["b0"]],
     e = exp(cf[["log_e"]]),
     b2 = b2,
     b2_fixed = start$at_bound || b2 >= b2_upper * 0.999
   )
 }
 
-analyse_test <- function(d) {
-  ctrl <- d$response[d$conc == 0]
 
-  # NSEC, b0 estimated: the threshold is the lower one-sided (1 - alpha)
-  # confidence bound on b0, using SE(b0) from the fit and the residual df.
+# Analysis -------------------------------------------------------------------
+
+analyse_test <- function(d) {
   m <- fit_decay(d)
   se_b0 <- sqrt(vcov(m$fit)["b0", "b0"])
   t_crit <- qt(1 - alpha, df.residual(m$fit))
-  lower <- m$b0 - t_crit * se_b0
-  nsec <- solve_conc(lower, m$b0, m$e, m$b2)
+  nsec_threshold <- m$b0 - t_crit * se_b0
+  nsec <- solve_conc(nsec_threshold, m$b0, m$e, m$b2)
 
-  # NSEC-cv: b0 fixed at the observed control mean, and the threshold is the
-  # lower one-sided (1 - alpha) confidence bound on that mean, from the control
-  # replicates alone (df = n_control - 1).
-  #
-  # This is a one-sample bound on the control mean. The LECx effect size (the
-  # PMSD) is a two-sample minimum significant difference instead: it includes a
-  # factor of sqrt(1/n_control + 1/n_treatment) rather than sqrt(1/n_control),
-  # uses the variance pooled over all groups, and in CETIS uses the Dunnett
-  # critical value rather than t. The components are written to the results so
-  # the two effect sizes can be reconciled term by term against the CETIS
-  # output.
-  ctrl_mean <- mean(ctrl)
-  ctrl_sd <- sd(ctrl)
-  n_ctrl <- length(ctrl)
-  t_crit_cv <- qt(1 - alpha, n_ctrl - 1)
-  lower_cv <- ctrl_mean - t_crit_cv * ctrl_sd / sqrt(n_ctrl)
-  m_cv <- fit_decay(d, b0_fixed = ctrl_mean)
-  nsec_cv <- solve_conc(lower_cv, ctrl_mean, m_cv$e, m_cv$b2)
+  dunnett <- dunnett_msd(d$conc, d$response, alpha, control = 0)
+  msd_threshold <- m$b0 * (1 - dunnett$pmsd / 100)
+  nsec_msd <- if (dunnett$pmsd < 100) solve_conc(msd_threshold, m$b0, m$e, m$b2) else NA_real_
 
-  # EC10 and EC25 from the b0-estimated curve. These are not NSEC quantities;
-  # they are reported so that this curve can be checked against the CETIS
-  # IC10 and IC25 before any difference between NSEC-cv and LECx is attributed
-  # to the threshold definition rather than to the fitted curve.
+  # EC10 and EC25 from the same curve. They are reported so that this curve
+  # can be checked against the CETIS IC10 and IC25 before any difference
+  # between the NSEC-MSD and the CETIS LECx is attributed to delta rather than
+  # to the fitted curve.
   ecx <- \(p) solve_conc((1 - p) * m$b0, m$b0, m$e, m$b2)
 
   # A threshold outside the tested range is set by the shape of the model
@@ -281,13 +317,15 @@ analyse_test <- function(d) {
   # threshold can fall far below any tested concentration.
   x_min <- min(d$conc[d$conc > 0])
   x_max <- max(d$conc)
+  outside <- \(x, label) c(
+    if (isTRUE(x < x_min)) paste(label, "below lowest tested concentration"),
+    if (isTRUE(x > x_max)) paste(label, "above highest tested concentration")
+  )
   notes <- c(
-    if (m$b2_fixed) "b2 not identified with b0 estimated; fitted at bound",
-    if (m_cv$b2_fixed) "b2 not identified with b0 fixed; fitted at bound",
-    if (nsec < x_min) "NSEC below lowest tested concentration",
-    if (nsec_cv < x_min) "NSEC-cv below lowest tested concentration",
-    if (nsec > x_max) "NSEC above highest tested concentration",
-    if (nsec_cv > x_max) "NSEC-cv above highest tested concentration"
+    if (m$b2_fixed) "b2 not identified; fitted at bound",
+    if (dunnett$pmsd >= 100) "PMSD of 100% or more; NSEC-MSD undefined",
+    outside(nsec, "NSEC"),
+    outside(nsec_msd, "NSEC-MSD")
   )
 
   tibble::tibble(
@@ -298,26 +336,30 @@ analyse_test <- function(d) {
     b1 = m$e^-m$b2,
     b2 = m$b2,
     e = m$e,
-    se_b0 = se_b0,
     resid_sd = summary(m$fit)$sigma,
     df_resid = df.residual(m$fit),
+    se_b0 = se_b0,
     t_crit = t_crit,
-    nsec_threshold = lower,
+    nsec_threshold = nsec_threshold,
     nsec = nsec,
-    nsec_ecx_pct = 100 * (1 - lower / m$b0),
-    control_mean = ctrl_mean,
-    control_sd = ctrl_sd,
-    n_control = n_ctrl,
-    t_crit_cv = t_crit_cv,
-    nsec_cv_threshold = lower_cv,
-    b1_cv = m_cv$e^-m_cv$b2,
-    b2_cv = m_cv$b2,
-    e_cv = m_cv$e,
-    resid_sd_cv = summary(m_cv$fit)$sigma,
-    nsec_cv = nsec_cv,
-    nsec_cv_ecx_pct = 100 * (1 - lower_cv / ctrl_mean),
+    nsec_ecx_pct = 100 * t_crit * se_b0 / m$b0,
+    control_mean = dunnett$control_mean,
+    n_control = dunnett$n_control,
+    n_treatment = dunnett$n_treatment,
+    k_treatments = dunnett$k,
+    df_anova = dunnett$df,
+    s_pooled = dunnett$s_pooled,
+    dunnett_crit = dunnett$d_crit,
+    msd = dunnett$msd,
+    pmsd = dunnett$pmsd,
+    msd_threshold = msd_threshold,
+    nsec_msd = nsec_msd,
     ec10 = ecx(0.10),
     ec25 = ecx(0.25),
+    ratio_effect = dunnett$pmsd / (100 * t_crit * se_b0 / m$b0),
+    ratio_crit = dunnett$d_crit / t_crit,
+    ratio_se = dunnett$s_pooled * sqrt(1 / dunnett$n_control + 1 / dunnett$n_treatment) / se_b0,
+    ratio_b0 = m$b0 / dunnett$control_mean,
     fit_note = paste(notes, collapse = "; ")
   )
 }
@@ -338,7 +380,7 @@ results |>
   dplyr::transmute(
     species, conc_unit,
     nsec = signif(nsec, 3), nsec_ecx_pct = round(nsec_ecx_pct, 1),
-    nsec_cv = signif(nsec_cv, 3), nsec_cv_ecx_pct = round(nsec_cv_ecx_pct, 1),
+    nsec_msd = signif(nsec_msd, 3), pmsd = round(pmsd, 1),
     ec10 = signif(ec10, 3), ec25 = signif(ec25, 3),
     fit_note
   ) |>
@@ -350,12 +392,12 @@ results |>
 
 # Concentrations are shown on a log axis, which cannot place the control at
 # zero. The control is drawn at half the smallest positive value in the panel
-# (lowest treatment or threshold) and labelled "0"; the curves are evaluated at
+# (lowest treatment or threshold) and labelled "0"; the curve is evaluated at
 # true concentrations throughout.
-fit_colours <- c(nsec = "#2a78d6", nsec_cv = "#eb6834")
-fit_labels <- c(
-  nsec = "NSEC: b0 estimated",
-  nsec_cv = "NSEC-cv: b0 fixed at control mean"
+threshold_colours <- c(nsec = "#2a78d6", nsec_msd = "#eb6834")
+threshold_labels <- c(
+  nsec = "NSEC (LECx method 2): lower 95% bound on b0",
+  nsec_msd = "NSEC-MSD (LECx method 1): b0 reduced by the Dunnett PMSD"
 )
 
 format_conc <- function(x) {
@@ -363,53 +405,46 @@ format_conc <- function(x) {
 }
 
 plot_test <- function(d, r) {
-  thresholds <- c(r$nsec, r$nsec_cv)
+  thresholds <- c(r$nsec, r$nsec_msd)
   thresholds <- thresholds[is.finite(thresholds)]
   ctrl_pos <- min(c(r$conc_min, thresholds)) / 2
   x_hi <- max(c(r$conc_max, thresholds))
 
   d <- dplyr::mutate(d, plot_conc = ifelse(conc == 0, ctrl_pos, conc))
   grid <- 10^seq(log10(ctrl_pos), log10(x_hi), length.out = 300)
-  curves <- dplyr::bind_rows(
-    tibble::tibble(fit = "nsec", conc = grid, response = decay(grid, r$b0, r$e, r$b2)),
-    tibble::tibble(fit = "nsec_cv", conc = grid, response = decay(grid, r$control_mean, r$e_cv, r$b2_cv))
-  )
+  curve <- tibble::tibble(conc = grid, response = decay(grid, r$b0, r$e, r$b2))
   marks <- tibble::tibble(
-    fit = c("nsec", "nsec_cv"),
-    conc = c(r$nsec, r$nsec_cv),
-    response = c(r$nsec_threshold, r$nsec_cv_threshold)
+    threshold = c("nsec", "nsec_msd"),
+    conc = c(r$nsec, r$nsec_msd),
+    response = c(r$nsec_threshold, r$msd_threshold)
   ) |>
     dplyr::filter(is.finite(conc))
 
   log_breaks <- scales::breaks_log(n = 5)(c(r$conc_min, x_hi))
   log_breaks <- log_breaks[log_breaks > ctrl_pos * 1.5 & log_breaks <= x_hi * 1.05]
-  unit_label <- sub("ug", "\u00b5g", r$conc_unit)
+  unit_label <- sub("ug", "µg", r$conc_unit)
 
   ggplot2::ggplot(d, ggplot2::aes(plot_conc, response)) +
     ggplot2::geom_point(colour = "#52514e", alpha = 0.6, size = 1.4, shape = 16) +
-    ggplot2::geom_line(
-      data = curves,
-      ggplot2::aes(conc, response, colour = fit, linetype = fit),
-      linewidth = 0.7
-    ) +
+    ggplot2::geom_line(data = curve, ggplot2::aes(conc, response), colour = "#0b0b0b", linewidth = 0.6) +
     ggplot2::geom_segment(
       data = marks,
-      ggplot2::aes(x = conc, xend = conc, y = -Inf, yend = response, colour = fit),
+      ggplot2::aes(x = conc, xend = conc, y = -Inf, yend = response, colour = threshold),
       linetype = "dotted", linewidth = 0.5
     ) +
     ggplot2::geom_point(
       data = marks,
-      ggplot2::aes(conc, response, colour = fit),
-      size = 2.2, shape = 21, fill = "white", stroke = 1
+      ggplot2::aes(conc, response, colour = threshold, shape = threshold),
+      size = 2.4, fill = "white", stroke = 1.1
     ) +
     ggplot2::scale_x_log10(
       breaks = c(ctrl_pos, log_breaks),
       labels = c("0", format_conc(log_breaks))
     ) +
-    ggplot2::scale_colour_manual(values = fit_colours, labels = fit_labels, name = NULL) +
-    ggplot2::scale_linetype_manual(
-      values = c(nsec = "solid", nsec_cv = "longdash"), labels = fit_labels, name = NULL
-    ) +
+    ggplot2::scale_colour_manual(values = threshold_colours, labels = threshold_labels, name = NULL) +
+    # Shape as a second encoding, so the two thresholds are distinguishable
+    # without colour.
+    ggplot2::scale_shape_manual(values = c(nsec = 21, nsec_msd = 24), labels = threshold_labels, name = NULL) +
     ggplot2::expand_limits(y = 0) +
     ggplot2::labs(
       title = bquote(italic(.(r$species)) ~ "(" * .(r$duration) ~ .(r$endpoint) * ")"),
@@ -430,16 +465,18 @@ panels <- purrr::map(levels(ce$test), \(t) {
   plot_test(dplyr::filter(ce, test == t), dplyr::filter(results, test == t))
 })
 
-# The collected legend takes its position from the panel themes. The patchwork
-# `&` operator and plot_annotation(theme = ) are not used because patchwork
-# 1.3.0 does not accept ggplot2 4.0 theme objects in either.
-figure <- patchwork::wrap_plots(panels, ncol = 2) +
-  patchwork::plot_layout(guides = "collect") +
+# The collected legend is placed in a full-width row reserved by guide_area().
+# Its position cannot be set through a theme here: the patchwork `&` operator
+# and plot_annotation(theme = ) do not accept ggplot2 4.0 theme objects in
+# patchwork 1.3.0, and the panel themes alone left it on the right.
+layout <- paste(c(apply(matrix(LETTERS[seq_along(panels)], ncol = 2, byrow = TRUE), 1, paste, collapse = ""), "KK"), collapse = "\n")
+figure <- patchwork::wrap_plots(c(panels, list(patchwork::guide_area())), design = layout) +
+  patchwork::plot_layout(guides = "collect", heights = c(rep(1, length(panels) / 2), 0.12)) +
   patchwork::plot_annotation(
     caption = paste(
       "Points are replicates; the control is plotted at the left-most tick, labelled 0.",
-      "Open circles mark each threshold: the concentration at which the curve",
-      "reaches the lower one-sided 95% bound on the control response.",
+      "Line: exponential decay fitted by least squares. Markers: concentration at which",
+      "the curve falls below b0 by the NSEC or the NSEC-MSD delta (one-sided, alpha = 0.05).",
       sep = "\n"
     )
   )
