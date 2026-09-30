@@ -11,7 +11,8 @@
 # being computed separately in CETIS, and the results table is laid out for
 # direct comparison with that output.
 #
-# Run from anywhere inside the project:
+# Requires data-raw/Ce dataset - for statistical comparison.xlsx. Run from
+# anywhere inside the project:
 #   Rscript case_studies/ce_nsec_analysis.R
 #
 # Outputs (case_studies/output/):
@@ -39,8 +40,10 @@ here::i_am("case_studies/ce_nsec_analysis.R")
 # dunnett_crit() and dunnett_msd(), shared with compare_nsec_lecx.qmd.
 source(here::here("R", "dunnett.R"))
 
+# The workbook is unpublished and is not held in the repository: data-raw/ is
+# git-ignored, and a copy obtained from the data owner must be placed there.
 data_file <- here::here(
-  "case_studies", "Ce dataset - for statistical comparison.xlsx"
+  "data-raw", "Ce dataset - for statistical comparison.xlsx"
 )
 out_dir <- here::here("case_studies", "output")
 dir.create(out_dir, showWarnings = FALSE)

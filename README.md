@@ -37,4 +37,6 @@ They differ in how they summarise a C–R relationship, and in what they assume 
 
 - `compare_nsec_lecx.qmd`: the worked comparison of the LECₓ, NEC, NSEC and NSEC-MSD on the fish growth data of Fisher and Fox (2023).
 - `R/dunnett.R`: the one-sided Dunnett critical value and minimum significant difference, shared by the two analyses.
-- `case_studies/ce_nsec_analysis.R`: the NSEC and NSEC-MSD for ten single-species cerium chloride toxicity tests, for comparison with the LECₓ calculated in CETIS. The script reads the workbook `case_studies/Ce dataset - for statistical comparison.xlsx`, supplied by the data owner, and writes its results to `case_studies/output/`.
+- `case_studies/ce_nsec_analysis.R`: the NSEC and NSEC-MSD for ten single-species cerium chloride toxicity tests, for comparison with the LECₓ calculated in CETIS. The script reads the workbook `data-raw/Ce dataset - for statistical comparison.xlsx`, and writes its results to `case_studies/output/`.
+
+Raw data supplied by collaborators are unpublished and are not held in the repository. `data-raw/` and `case_studies/output/` are git-ignored; a copy of each workbook must be obtained from its data owner and placed in `data-raw/` before a case-study script is run. Case-study scripts and reports are kept in `case_studies/`.
