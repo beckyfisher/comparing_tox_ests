@@ -1,0 +1,188 @@
+---
+title: "NSEC and NSEC-MSD for the cerium chloride toxicity tests"
+author: "Rebecca Fisher"
+date: today
+format:
+  html:
+    toc: true
+    number-sections: false
+    embed-resources: true
+bibliography: ../references.bib
+link-citations: true
+execute:
+  echo: false
+  warning: false
+  message: false
+---
+
+```{r setup}
+#| include: false
+# The analysis script is sourced rather than its outputs read, so that the
+# report always describes the current data and code. Every number and every
+# test named below is computed from its results; the source of this document
+# holds no data values.
+source(here::here("case_studies", "ce_nsec_analysis.R"))
+
+fmt <- function(x) format(signif(x, 3), scientific = FALSE, drop0trailing = TRUE, trim = TRUE)
+pct <- function(x) sprintf("%.1f", x)
+italic <- function(x) paste0("*", x, "*")
+species_list <- function(x) knitr::combine_words(italic(x))
+row_of <- function(test) results[results$test == test, ]
+
+conc_ratio <- results$nsec_msd / results$nsec
+step_tests <- results[grepl("b2 not identified", results$fit_note), ]
+below_tests <- results[grepl("below lowest tested concentration", results$fit_note), ]
+below_both <- results[grepl("NSEC-MSD below lowest", results$fit_note), ]
+
+# The tested concentrations either side of the step, for a fit with b2 at its bound.
+step_bracket <- function(r) {
+  concs <- sort(unique(ce$conc[ce$test == r$test]))
+  c(max(concs[concs < r$e]), min(concs[concs > r$e]))
+}
+
+max_ratio <- results[which.max(results$ratio_effect), ]
+max_conc_ratio <- results[which.max(conc_ratio), ]
+```
+
+# Background
+
+J. Baker supplied ten single-species toxicity tests of cerium chloride, for a comparison of the lowest effect concentration with associated effect size x (LECₓ) [@debruyn2013lecx] with the no-significant-effect concentration (NSEC) [@fisher2023nsec]. The LECₓ, the no- and lowest-observed-effect concentrations (NOEC and LOEC), and the 10% and 25% inhibition concentrations (IC10 and IC25) for the same tests are being calculated in the CETIS toxicity analysis software.
+
+Two thresholds were estimated for each test. Both are the concentration at which a fitted concentration–response curve falls a distance $\delta$ below its modelled control response $\hat{b}_0$. A threshold expressed in this form is said here to be in the NSEC framing. The two thresholds differ only in $\delta$.
+
+- The NSEC uses $\delta = t_{1-\alpha,\,n-p} \cdot \text{SE}(\hat{b}_0)$, the lower one-sided confidence bound on the modelled control response. It is the same calculation as the second LECₓ method of @debruyn2013lecx, which they equate with the statistical no-effect concentration (SNEC) of @chevre2002.
+- The NSEC-MSD uses $\delta = \hat{b}_0 \cdot \text{PMSD}/100$, where the percent minimum significant difference (PMSD) comes from a one-sided Dunnett's test [@usepa2000; @dunnett1955]. It is the first LECₓ method of @debruyn2013lecx, written in the NSEC framing. That method is the one implemented in CETIS.
+
+The derivation of both, and the three factors that separate them, are set out in `compare_nsec_lecx.qmd`.
+
+# Data
+
+The workbook holds the ten tests on one sheet. Each table was located from its concentration header. The import was checked for ten tests, at least three control replicates and five concentrations per test, and no negative responses.
+
+```{r design-table}
+knitr::kable(
+  data.frame(
+    Species = italic(meta$species[match(design$test, meta$test)]),
+    Test = paste(design$duration, design$endpoint),
+    Response = design$response_label,
+    Unit = sub("ug", "µg", design$conc_unit),
+    Concentrations = design$n_conc,
+    Control = design$n_control,
+    Treatment = design$reps_per_treatment,
+    Range = design$conc_range
+  ),
+  col.names = c("Species", "Test", "Response", "Unit", "Concentrations", "Control replicates", "Treatment replicates", "Tested range"),
+  caption = "Design of the ten tests, including the control in the count of concentrations. The tested range is from the lowest to the highest non-zero concentration."
+)
+```
+
+Each test has between `r min(design$n_conc)` and `r max(design$n_conc)` concentrations including the control. Replication per treatment ranges from `r min(results$n_treatment)` to `r max(results$n_treatment)`. In `r sum(results$n_control != results$n_treatment)` tests the control has more replicates than each treatment. Concentrations are reported in the units of the workbook, µg/L or mg/L as shown.
+
+# Methods
+
+## Concentration–response model
+
+Each test was fitted with the exponential decay $y = b_0 \exp(-b_1 x^{b_2})$ used in `compare_nsec_lecx.qmd`, by ordinary least squares on the raw response. The model was fitted in the equivalent form $y = b_0 \exp(-(x/e)^{b_2})$, with $b_1 = e^{-b_2}$, because $b_1$ in the native units is too small for `nls()` to estimate reliably. Starting values came from the profile of the residual sum of squares over $b_2$. Where that profile falls continually as $b_2$ increases, $b_2$ has no finite least-squares estimate and the curve approaches a vertical step. Such a fit was refitted with $b_2$ fixed at `r b2_upper` and flagged.
+
+## Thresholds
+
+The NSEC used $t$ at $\alpha = `r alpha`$ with the residual degrees of freedom of the fit. The NSEC-MSD used the minimum significant difference of a one-way ANOVA on the raw response, with every tested concentration included:
+
+$$
+\text{MSD} = d_{1-\alpha} \cdot s_{\text{pooled}} \sqrt{\frac{1}{n_{\text{control}}} + \frac{1}{n_{\text{treatment}}}}, \qquad \text{PMSD} = 100 \cdot \frac{\text{MSD}}{\bar{y}_{\text{control}}}
+$$
+
+Dunnett's critical value $d_{1-\alpha}$ was computed exactly for the replication of each test by `dunnett_crit()` in `R/dunnett.R`. The EC10 and EC25, the concentrations at which the curve falls 10% and 25% below $\hat{b}_0$, were read from the same curve, so that it can be checked against the CETIS IC10 and IC25.
+
+# Results
+
+## Fitted curves and thresholds
+
+```{r fits}
+#| fig-cap: "Replicate responses, the fitted exponential decay, and the NSEC and NSEC-MSD for each test. The control is plotted at the left-most tick, labelled 0, on the logarithmic concentration axis."
+#| out-width: "100%"
+knitr::include_graphics("output/ce_nsec_fits.png")
+```
+
+The NSEC-MSD is higher than the NSEC in `r if (all(results$nsec_msd > results$nsec)) paste("all", nrow(results)) else paste(sum(results$nsec_msd > results$nsec), "of the", nrow(results))` tests, by a factor of `r fmt(min(conc_ratio))` to `r fmt(max(conc_ratio))`. The largest factor is for `r italic(max_conc_ratio$species)`.
+
+## Estimates
+
+```{r estimates}
+short_note <- ifelse(
+  grepl("b2 not identified", results$fit_note), "b2 at bound",
+  ifelse(grepl("NSEC-MSD below", results$fit_note), "both below tested range",
+    ifelse(grepl("NSEC below", results$fit_note), "NSEC below tested range", "")
+  )
+)
+knitr::kable(
+  data.frame(
+    Species = italic(results$species),
+    Unit = sub("ug", "µg", results$conc_unit),
+    NSEC = fmt(results$nsec),
+    NSEC_effect = pct(results$nsec_ecx_pct),
+    PMSD = pct(results$pmsd),
+    NSEC_MSD = fmt(results$nsec_msd),
+    EC10 = fmt(results$ec10),
+    EC25 = fmt(results$ec25),
+    Note = short_note
+  ),
+  col.names = c("Species", "Unit", "NSEC", "Effect at NSEC (%)", "PMSD (%)", "NSEC-MSD", "EC10", "EC25", "Note"),
+  caption = "Thresholds for each test. The effect at the NSEC is the % reduction from the modelled control response at the NSEC. The PMSD is the effect at the NSEC-MSD by construction."
+)
+```
+
+The effect at the NSEC ranges from `r pct(min(results$nsec_ecx_pct))`% to `r pct(max(results$nsec_ecx_pct))`%. The PMSD ranges from `r pct(min(results$pmsd))`% to `r pct(max(results$pmsd))`%. For `r sum(results$ec10 > results$nsec)` tests the EC10 is above the NSEC.
+
+## Sources of the difference between the NSEC and the NSEC-MSD
+
+The ratio of the PMSD to the effect at the NSEC is the product of three factors. They are Dunnett's critical value over $t$; the standard error of a difference between a control and a treatment mean over $\text{SE}(\hat{b}_0)$; and $\hat{b}_0$ over the observed control mean.
+
+```{r factors}
+knitr::kable(
+  data.frame(
+    Species = italic(results$species),
+    Critical = sprintf("%.2f", results$ratio_crit),
+    StdError = sprintf("%.2f", results$ratio_se),
+    Control = sprintf("%.2f", results$ratio_b0),
+    Ratio = sprintf("%.2f", results$ratio_effect)
+  ),
+  col.names = c("Species", "Critical value (d / t)", "Standard error", "b0 / control mean", "Ratio of effects"),
+  caption = "Factors in the ratio of the PMSD to the effect at the NSEC. The ratio is the product of the three factors."
+)
+```
+
+The critical-value factor varies little, from `r sprintf("%.2f", min(results$ratio_crit))` to `r sprintf("%.2f", max(results$ratio_crit))`. The standard-error factor varies from `r sprintf("%.2f", min(results$ratio_se))` to `r sprintf("%.2f", max(results$ratio_se))`. Across the tests, differences in it account for `r round(100 * cor(log(results$ratio_effect), log(results$ratio_se))^2)`% of the variance in the logarithm of the ratio. The fitted control response lies within `r pct(100 * max(abs(results$ratio_b0 - 1)))`% of the observed control mean in every test. The largest ratio, `r sprintf("%.2f", max_ratio$ratio_effect)`, is for `r italic(max_ratio$species)`, which has `r max_ratio$n_treatment` replicates per treatment and a standard-error factor of `r sprintf("%.2f", max_ratio$ratio_se)`.
+
+## Thresholds requiring caution
+
+```{r step}
+step <- step_tests[1, ]
+bracket <- step_bracket(step)
+```
+
+For `r italic(step$species)`, $b_2$ has no finite least-squares estimate. The fitted curve is a step between the tested concentrations of `r fmt(bracket[1])` and `r fmt(bracket[2])` `r sub("ug", "µg", step$conc_unit)`. Any threshold defined against the control then falls just below the step, whatever its $\delta$. The NSEC (`r fmt(step$nsec)`) and the NSEC-MSD (`r fmt(step$nsec_msd)`) depend on the bound placed on $b_2$. Both should be read as lying between those two concentrations.
+
+For `r species_list(below_tests$species)` the NSEC lies below the lowest tested concentration, and for `r species_list(below_both$species)` the NSEC-MSD does as well. In `r if (nrow(below_tests) > 1) "these tests" else "this test"` $\hat{b}_2$ is below 1 (`r paste(sprintf("%.2f", below_tests$b2), collapse = " and ")`), so the fitted curve has infinite slope at zero concentration. The thresholds are then set by the shape of the model between the control and the lowest concentration, where there are no data.
+
+# Comparison with the CETIS LECₓ
+
+The CETIS values have not yet been received. The comparison will set three pairs of values side by side for each test: the PMSD from CETIS against the PMSD here, the CETIS LECₓ against the NSEC-MSD, and the CETIS IC10 and IC25 against the EC10 and EC25.
+
+The PMSD here assumes three things about the CETIS calculation, each to be confirmed for each test:
+
+- Dunnett's test was the comparison used, on untransformed data, with every tested concentration included;
+- the critical values are exact for the replication of the test, rather than tabulated for equal replication;
+- the LECₓ is the IC at x = PMSD relative to the fitted control response, rather than to the observed control mean.
+
+Where all three hold, the PMSD here equals the CETIS PMSD. The NSEC-MSD then equals the CETIS LECₓ wherever CETIS fitted the same concentration–response model. Where the models differ, the IC10 and IC25 comparison shows how much of any difference in the LECₓ comes from the curve rather than from $\delta$.
+
+# Limitations
+
+Every test was fitted with one model form, by least squares on the raw response. The variance of the response is not modelled, although it falls with the mean for the neonate counts of `r italic(row_of("ceriodaphnia_dubia")$species)` and wherever the response approaches zero. No uncertainty interval was calculated for either threshold. A model-averaged fit, such as that in the *bayesnec* package, would include the uncertainty in the choice of model and would give credible intervals for both thresholds.
+
+# Reproduction
+
+The results were produced by `case_studies/ce_nsec_analysis.R` at commit `r system("git describe --always --dirty", intern = TRUE)`, with `r R.version.string`. The script reads `data-raw/Ce dataset - for statistical comparison.xlsx`, which is not held in the repository and must be obtained from the data owner. No step is stochastic, and repeated runs give identical results. The rendered report and the outputs in `case_studies/output/` include the data, and are not committed.
+
+# References
